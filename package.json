@@ -1,0 +1,14 @@
+{
+  "name": "bot-builder-saas",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0",
+    "typescript": "^5.5.0",
+    "@cloudflare/workers-types": "^4.20240909.0"
+  }
+}
