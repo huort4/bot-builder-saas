@@ -13,19 +13,26 @@ export default {
     try {
       const update = (await request.json()) as { channel_post?: any, message?: any, callback_query?: any };
       
+      // هدایت درخواست‌ها به بخش‌های مربوطه
       if (update.channel_post) {
         ctx.waitUntil(handleChannelPost(update.channel_post, env));
       } else if (update.message) {
         ctx.waitUntil(handleUserMessage(update.message, env));
+      } else if (update.callback_query) {
+        ctx.waitUntil(handleCallbackQuery(update.callback_query, env));
       }
       
       return new Response("OK", { status: 200 });
     } catch (error) {
+      console.error(error);
       return new Response("OK", { status: 200 });
     }
   }
 };
 
+// ==========================================
+// ایستگاه اول: پیام‌های کاربر (منوی خوش‌آمدگویی)
+// ==========================================
 async function handleUserMessage(message: any, env: Env) {
   const chatId = message.chat.id;
   const text = message.text;
@@ -53,6 +60,47 @@ async function handleUserMessage(message: any, env: Env) {
   }
 }
 
+// ==========================================
+// ایستگاه دوم: پردازش کلیک روی دکمه‌های شیشه‌ای
+// ==========================================
+async function handleCallbackQuery(query: any, env: Env) {
+  const data = query.data;
+  const chatId = query.message.chat.id;
+  const callbackQueryId = query.id;
+
+  // خاموش کردن حالت لودینگ دکمه
+  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ callback_query_id: callbackQueryId })
+  });
+
+  // مسیردهی کلیک‌ها
+  let responseText = "";
+  if (data === "categories") {
+    responseText = "بخش دسته‌بندی‌ها در حال اتصال به پایگاه داده است... 🛍";
+  } else if (data === "cart") {
+    responseText = "سبد خرید شما در حال حاضر خالی است. 🛒";
+  } else if (data === "search") {
+    responseText = "نام محصول مورد نظر را تایپ کنید: 🔍";
+  } else {
+    responseText = "این بخش به زودی فعال می‌شود! 🚧";
+  }
+
+  // ارسال پاسخ موقت
+  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: responseText
+    })
+  });
+}
+
+// ==========================================
+// پردازش پست‌های کانال (استخراج هوشمند)
+// ==========================================
 async function handleChannelPost(post: any, env: Env) {
   const text = post.text || post.caption;
   const channelId = post.chat.id.toString();
