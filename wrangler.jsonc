@@ -2,11 +2,15 @@
   "name": "bot-builder-saas",
   "main": "src/index.ts",
   "compatibility_date": "2024-09-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "keep_vars": true,
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "bot_builder_db",
-      "database_id": "a5020b0b-8a81-42a0-8c14-9cf9ed668bfa"
+      "database_id": "a5020b0b-8a81-42a0-8c14-9cf9ed668bfa",
+      "migrations_dir": "migrations"
     }
   ]
 }
