@@ -1,5 +1,6 @@
 export interface Env {
   DB: D1Database;
+  ASSETS: Fetcher;
   AI_API_KEY: string;
   TELEGRAM_BOT_TOKEN: string;
   AI_MODEL?: string;
@@ -30,6 +31,11 @@ export default {
     // API مینی‌اپ تلگرام (صفحه‌ی HTML از پوشه public سرو می‌شود)
     if (url.pathname === "/api/stores" && request.method === "POST") {
       return handleCreateStore(request, env);
+    }
+
+    // صفحه‌ی مینی‌اپ (فقط GET/HEAD)؛ وبهوک تلگرام همیشه POST است و به این بخش نمی‌رسد
+    if (request.method === "GET" || request.method === "HEAD") {
+      return env.ASSETS.fetch(request);
     }
 
     if (request.method !== "POST") {
