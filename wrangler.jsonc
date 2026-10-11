@@ -5,6 +5,9 @@
   "workers_dev": true,
   "preview_urls": false,
   "keep_vars": true,
+  "assets": {
+    "directory": "./public"
+  },
   "d1_databases": [
     {
       "binding": "DB",
