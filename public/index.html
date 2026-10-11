@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>راه‌اندازی فروشگاه</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #1c1c1e);
+    --card: var(--tg-theme-secondary-bg-color, #2c2c2e);
+    --text: var(--tg-theme-text-color, #ffffff);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --accent: var(--tg-theme-button-color, #3390ec);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --danger: #ff453a;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: Vazirmatn, Tahoma, system-ui, sans-serif; }
+  body { padding: 16px 16px calc(24px + env(safe-area-inset-bottom, 0px)); min-height: 100vh; }
+  main { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 8px 0 4px; text-align: center; }
+  .sub { color: var(--hint); text-align: center; font-size: 13px; margin: 0 0 18px; }
+  .progress { display: flex; gap: 6px; margin-bottom: 18px; }
+  .progress i { flex: 1; height: 4px; border-radius: 2px; background: var(--card); }
+  .progress i.on { background: var(--accent); }
+  .card { background: var(--card); border-radius: 14px; padding: 16px; }
+  .step { display: none; }
+  .step.active { display: block; }
+  h2 { font-size: 16px; margin: 0 0 14px; }
+  label { display: block; font-size: 13px; color: var(--hint); margin: 12px 0 6px; }
+  input, select { width: 100%; padding: 12px; border-radius: 10px; font-size: 16px;
+    border: 1px solid transparent; background: var(--bg); color: var(--text); outline: none; }
+  input:focus, select:focus { border-color: var(--accent); }
+  input.ltr { direction: ltr; text-align: left; }
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+  .switch small { color: var(--hint); display: block; margin-top: 2px; }
+  .switch input { width: 48px; height: 28px; accent-color: var(--accent); flex: none; }
+  .hint { color: var(--hint); font-size: 13px; line-height: 1.8; margin: 0 0 6px; }
+  .actions { display: flex; gap: 10px; margin-top: 18px; }
+  button { font: inherit; font-size: 16px; border: 0; border-radius: 12px; padding: 13px; cursor: pointer; }
+  button.primary { flex: 1; background: var(--accent); color: var(--accent-text); }
+  button.ghost { background: transparent; color: var(--hint); }
+  button:disabled { opacity: .55; cursor: default; }
+  .error { color: var(--danger); font-size: 14px; min-height: 20px; margin: 12px 2px 0; }
+  .notice { background: var(--card); border-radius: 14px; padding: 18px; text-align: center; line-height: 2; }
+  .done { text-align: center; }
+  .done .big { font-size: 48px; }
+  .done ol { text-align: right; line-height: 2.1; padding-right: 20px; color: var(--hint); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>جادوگر ساخت فروشگاه 🧙‍♂️</h1>
+  <p class="sub">در سه قدم فروشگاه تلگرامی خودتان را راه بیندازید</p>
+
+  <div id="outside" class="notice" hidden>
+    این صفحه باید از داخل تلگرام باز شود.<br>
+    ربات را در تلگرام باز کنید و از دکمه منو (یا لینک مینی‌اپ) وارد شوید.
+  </div>
+
+  <div id="wizard" hidden>
+    <div class="progress" aria-hidden="true"><i class="on"></i><i></i><i></i></div>
+
+    <form id="form" class="card" autocomplete="off" novalidate>
+      <section class="step active" data-step="0">
+        <h2>هویت برند</h2>
+        <label for="store_name">نام فروشگاه شما</label>
+        <input id="store_name" maxlength="64" enterkeyhint="next">
+        <label for="category">حوزه کاری</label>
+        <select id="category">
+          <option>فایل و دیجیتال</option>
+          <option>پوشاک</option>
+          <option>خدمات</option>
+          <option>کانفیگ و اکانت</option>
+        </select>
+      </section>
+
+      <section class="step" data-step="1">
+        <h2>تنظیمات مالی</h2>
+        <label for="card_number">شماره کارت یا شبا (اختیاری)</label>
+        <input id="card_number" class="ltr" inputmode="text" enterkeyhint="next" placeholder="6037-xxxx-xxxx-xxxx">
+        <div class="switch">
+          <div>پشتیبانی از تلگرام استارز ⭐️<small>دریافت آنی وجه برای فایل‌ها</small></div>
+          <input id="accept_stars" type="checkbox" checked>
+        </div>
+      </section>
+
+      <section class="step" data-step="2">
+        <h2>اتصال جادویی کانال</h2>
+        <p class="hint">ربات را در کانال خود ادمین کنید، سپس آیدی کانال را وارد کنید:</p>
+        <label for="channel_id">آیدی کانال (مثلاً @MyStore)</label>
+        <input id="channel_id" class="ltr" autocapitalize="none" autocorrect="off" spellcheck="false">
+      </section>
+
+      <div id="error" class="error" role="alert"></div>
+
+      <div class="actions">
+        <button type="submit" id="next" class="primary">مرحله بعد</button>
+        <button type="button" id="back" class="ghost" hidden>قبلی</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="success" class="card done" hidden>
+    <div class="big">🎉</div>
+    <h2>فروشگاه شما ساخته شد!</h2>
+    <ol>
+      <li>ربات را در کانالتان ادمین کنید.</li>
+      <li>اولین پست محصول را در کانال بگذارید.</li>
+      <li>ربات محصول را خودکار تشخیص می‌دهد.</li>
+    </ol>
+  </div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var tg = window.Telegram && window.Telegram.WebApp;
+  var initData = tg && tg.initData ? tg.initData : "";
+  if (tg) { tg.ready(); tg.expand(); }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var steps = document.querySelectorAll(".step");
+  var bars = document.querySelectorAll(".progress i");
+  var current = 0, busy = false;
+
+  if (!initData) { $("outside").hidden = false; return; }
+  $("wizard").hidden = false;
+
+  // ارقام فارسی و عربی را به لاتین تبدیل می‌کند
+  function digits(s) {
+    return s.replace(/[\u06F0-\u06F9]/g, function (d) { return String(d.charCodeAt(0) - 0x06F0); })
+            .replace(/[\u0660-\u0669]/g, function (d) { return String(d.charCodeAt(0) - 0x0660); });
+  }
+  function luhn(num) {
+    var sum = 0;
+    for (var i = 0; i < num.length; i++) {
+      var d = Number(num[num.length - 1 - i]);
+      if (i % 2 === 1) { d *= 2; if (d > 9) d -= 9; }
+      sum += d;
+    }
+    return sum % 10 === 0;
+  }
+
+  function validate(step) {
+    if (step === 0) {
+      var name = $("store_name").value.trim();
+      if (!name) return "نام فروشگاه را وارد کنید.";
+      if (name.length > 64) return "نام فروشگاه حداکثر ۶۴ حرف باشد.";
+    }
+    if (step === 1) {
+      var card = digits($("card_number").value).replace(/[\s-]/g, "");
+      if (card) {
+        if (!/^(\d{16}|IR\d{24})$/i.test(card)) return "شماره کارت باید ۱۶ رقم یا شبا به شکل IR و ۲۴ رقم باشد.";
+        if (/^\d{16}$/.test(card) && !luhn(card)) return "شماره کارت معتبر نیست؛ ارقام را دوباره بررسی کنید.";
+      }
+    }
+    if (step === 2) {
+      var ch = digits($("channel_id").value).trim();
+      var ok = /^@[A-Za-z][A-Za-z0-9_]{4,31}$/.test(ch) || /^-100\d+$/.test(ch);
+      if (!ok) return "آیدی کانال را به شکل @MyStore وارد کنید.";
+    }
+    return "";
+  }
+
+  function show(step) {
+    current = step;
+    steps.forEach(function (el, i) { el.classList.toggle("active", i === step); });
+    bars.forEach(function (el, i) { el.classList.toggle("on", i <= step); });
+    $("back").hidden = step === 0;
+    $("next").textContent = step === 2 ? "تکمیل و ساخت فروشگاه 🚀" : "مرحله بعد";
+    $("error").textContent = "";
+  }
+
+  var ERRORS = {
+    invalid_store_name: "نام فروشگاه معتبر نیست.",
+    invalid_channel_id: "آیدی کانال معتبر نیست.",
+    invalid_card_number: "شماره کارت یا شبا معتبر نیست.",
+    channel_already_registered: "این کانال قبلاً ثبت شده است.",
+    invalid_init_data: "نشست تلگرام منقضی شده؛ مینی‌اپ را ببندید و دوباره باز کنید.",
+    invalid_json: "درخواست نامعتبر بود؛ دوباره تلاش کنید.",
+    db_error: "مشکلی در سرور پیش آمد؛ کمی بعد دوباره تلاش کنید.",
+    server_misconfigured: "سرور هنوز کامل تنظیم نشده است."
+  };
+
+  async function submit() {
+    if (busy) return;
+    busy = true; $("next").disabled = true; $("back").disabled = true;
+    $("error").textContent = "";
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 15000);
+    try {
+      var res = await fetch("/api/stores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: ctrl.signal,
+        body: JSON.stringify({
+          init_data: initData,
+          store_name: $("store_name").value.trim(),
+          category: $("category").value,
+          card_number: digits($("card_number").value).trim(),
+          accept_stars: $("accept_stars").checked,
+          channel_id: digits($("channel_id").value).trim()
+        })
+      });
+      if (res.ok) {
+        $("wizard").hidden = true; $("success").hidden = false;
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+        return;
+      }
+      var code = "";
+      try { code = (await res.json()).error || ""; } catch (e) {}
+      $("error").textContent = ERRORS[code] || ("خطای سرور (" + res.status + ")");
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+    } catch (e) {
+      $("error").textContent = e && e.name === "AbortError"
+        ? "پاسخی از سرور نیامد؛ دوباره تلاش کنید."
+        : "اتصال اینترنت را بررسی کنید.";
+    } finally {
+      clearTimeout(timer);
+      busy = false; $("next").disabled = false; $("back").disabled = false;
+    }
+  }
+
+  $("form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var err = validate(current);
+    if (err) { $("error").textContent = err; return; }
+    if (current < 2) show(current + 1); else submit();
+  });
+  $("back").addEventListener("click", function () { if (current > 0 && !busy) show(current - 1); });
+})();
+</script>
+</body>
+</html>
