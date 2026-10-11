@@ -27,7 +27,7 @@ export default {
       return new Response(null, { status: 204, headers: CORS });
     }
 
-    // API اپلیکیشن فلاتر
+    // API مینی‌اپ تلگرام (صفحه‌ی HTML از پوشه public سرو می‌شود)
     if (url.pathname === "/api/stores" && request.method === "POST") {
       return handleCreateStore(request, env);
     }
@@ -81,7 +81,73 @@ async function tg(env: Env, method: string, payload: unknown) {
 }
 
 // ==========================================
-// ثبت فروشگاه از اپلیکیشن فلاتر
+// ابزارهای کمکی ثبت فروشگاه (مینی‌اپ تلگرام)
+// ==========================================
+
+// تبدیل ارقام فارسی و عربی به لاتین (کیبورد فارسی ۰-۹ را به 0-9 می‌برد)
+function normalizeDigits(input: string): string {
+  return input
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+}
+
+function hex(buf: ArrayBuffer): string {
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function hmacSha256(key: ArrayBuffer | string, data: string): Promise<ArrayBuffer> {
+  const raw = typeof key === "string" ? new TextEncoder().encode(key) : key;
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    raw,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  return crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(data));
+}
+
+// اعتبارسنجی initData مینی‌اپ تلگرام؛ در صورت معتبر بودن، شناسه کاربر را برمی‌گرداند
+async function verifyInitData(
+  initData: string,
+  botToken: string,
+  maxAgeSeconds = 24 * 60 * 60
+): Promise<number | null> {
+  if (!initData || initData.length > 4096) return null;
+
+  const params = new URLSearchParams(initData);
+  const hash = params.get("hash");
+  if (!hash) return null;
+  params.delete("hash");
+
+  const dataCheckString = [...params.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("\n");
+
+  const secretKey = await hmacSha256("WebAppData", botToken);
+  const expected = hex(await hmacSha256(secretKey, dataCheckString));
+
+  // مقایسه هم‌زمان‌ثابت
+  if (expected.length !== hash.length) return null;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ hash.charCodeAt(i);
+  if (diff !== 0) return null;
+
+  const authDate = Number(params.get("auth_date"));
+  if (!Number.isFinite(authDate) || Date.now() / 1000 - authDate > maxAgeSeconds) return null;
+
+  try {
+    const user = JSON.parse(params.get("user") ?? "");
+    const id = Number(user?.id);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+// ==========================================
+// ثبت فروشگاه از مینی‌اپ تلگرام
 // ==========================================
 async function handleCreateStore(request: Request, env: Env): Promise<Response> {
   let body: any;
@@ -91,15 +157,19 @@ async function handleCreateStore(request: Request, env: Env): Promise<Response> 
     return json({ error: "invalid_json" }, 400);
   }
 
+  if (!env.TELEGRAM_BOT_TOKEN) return json({ error: "server_misconfigured" }, 500);
+
+  // هویت ادمین فقط از initData امضاشده تلگرام گرفته می‌شود، نه از بدنه درخواست
+  const adminId = await verifyInitData(String(body.init_data ?? ""), env.TELEGRAM_BOT_TOKEN);
+  if (adminId === null) return json({ error: "invalid_init_data" }, 401);
+
   const storeName = String(body.store_name ?? "").trim();
   const category = String(body.category ?? "").trim();
-  const cardNumber = String(body.card_number ?? "").replace(/[\s-]/g, "");
+  const cardNumber = normalizeDigits(String(body.card_number ?? "")).replace(/[\s-]/g, "");
   const acceptStars = body.accept_stars ? 1 : 0;
-  const adminId = Number(body.admin_id);
-  let channelId = String(body.channel_id ?? "").trim();
+  let channelId = normalizeDigits(String(body.channel_id ?? "")).trim();
 
   if (!storeName || storeName.length > 64) return json({ error: "invalid_store_name" }, 400);
-  if (!Number.isInteger(adminId) || adminId <= 0) return json({ error: "invalid_admin_id" }, 400);
   if (!/^@[A-Za-z][A-Za-z0-9_]{4,31}$/.test(channelId) && !/^-100\d+$/.test(channelId)) {
     return json({ error: "invalid_channel_id" }, 400);
   }
