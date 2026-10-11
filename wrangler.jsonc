@@ -6,7 +6,9 @@
   "preview_urls": false,
   "keep_vars": true,
   "assets": {
-    "directory": "./public"
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
   },
   "d1_databases": [
     {
