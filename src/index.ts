@@ -6,6 +6,8 @@ export interface Env {
   WEBHOOK_SECRET: string; // اجباری
   CARD_ENC_KEY: string; // base64 از ۳۲ بایت تصادفی
   AI_MODEL?: string;
+  UPSTASH_REDIS_REST_URL: string;
+  UPSTASH_REDIS_REST_TOKEN: string;
 }
 
 const ALLOWED_CATEGORIES = ["فایل و دیجیتال", "پوشاک", "خدمات", "کانفیگ و اکانت"];
@@ -79,6 +81,31 @@ export default {
 };
 
 // ==========================================
+// اتصال به Upstash Redis
+// ==========================================
+async function redis(env: Env, command: any[]): Promise<any> {
+  // اگر متغیرهای آپستش تنظیم نشده باشند، تابع بدون خطا متوقف می‌شود
+  if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) return null;
+  
+  try {
+    const res = await fetch(env.UPSTASH_REDIS_REST_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(command),
+    });
+    const data = (await res.json()) as { result?: any; error?: string };
+    if (data.error) console.error("Upstash Error:", data.error);
+    return data.result;
+  } catch (e) {
+    console.error("Upstash Fetch Error:", e);
+    return null;
+  }
+}
+
+// ==========================================
 // ارسال درخواست به API تلگرام
 // ==========================================
 async function tg(env: Env, method: string, payload: unknown) {
@@ -101,7 +128,6 @@ async function tg(env: Env, method: string, payload: unknown) {
 // ابزارهای کمکی
 // ==========================================
 
-// تبدیل ارقام فارسی و عربی به لاتین
 function normalizeDigits(input: string): string {
   return input
     .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
@@ -137,7 +163,6 @@ async function hmacSha256(key: ArrayBuffer | string, data: string): Promise<Arra
   return crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(data));
 }
 
-// اعتبارسنجی initData مینی‌اپ تلگرام؛ در صورت معتبر بودن، شناسه کاربر را برمی‌گرداند
 async function verifyInitData(
   initData: string,
   botToken: string,
@@ -158,7 +183,6 @@ async function verifyInitData(
   const secretKey = await hmacSha256("WebAppData", botToken);
   const expected = hex(await hmacSha256(secretKey, dataCheckString));
 
-  // مقایسه هم‌زمان‌ثابت
   if (expected.length !== hash.length) return null;
   let diff = 0;
   for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ hash.charCodeAt(i);
@@ -176,7 +200,6 @@ async function verifyInitData(
   }
 }
 
-// رمزنگاری AES-GCM؛ خروجی: base64(iv[12] + ciphertext)
 async function encryptCard(plain: string, keyB64: string): Promise<string> {
   const raw = Uint8Array.from(atob(keyB64), (c) => c.charCodeAt(0));
   const key = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt"]);
@@ -205,11 +228,9 @@ async function handleCreateStore(request: Request, env: Env): Promise<Response> 
     return json({ error: "invalid_json" }, 400);
   }
 
-  // ۱) هویت ادمین فقط از initData امضاشده تلگرام گرفته می‌شود
   const adminId = await verifyInitData(String(body.init_data ?? ""), env.TELEGRAM_BOT_TOKEN);
   if (adminId === null) return json({ error: "invalid_init_data" }, 401);
 
-  // ۲) اعتبارسنجی ورودی‌ها
   const storeName = String(body.store_name ?? "").trim();
   const category = String(body.category ?? "").trim();
   const cardNumber = normalizeDigits(String(body.card_number ?? ""))
@@ -232,7 +253,6 @@ async function handleCreateStore(request: Request, env: Env): Promise<Response> 
   }
   if (channelId.startsWith("@")) channelId = channelId.toLowerCase();
 
-  // ۳) بررسی مالکیت کانال: کانال باشد، ربات ادمین باشد، کاربر هم ادمین باشد
   const chat = await tg(env, "getChat", { chat_id: channelId });
   if (!chat.ok || chat.result?.type !== "channel") {
     return json({ error: "channel_not_found" }, 400);
@@ -252,7 +272,6 @@ async function handleCreateStore(request: Request, env: Env): Promise<Response> 
     return json({ error: "not_channel_admin" }, 403);
   }
 
-  // ۴) رمزنگاری کارت و ذخیره
   let cardEncrypted: string | null = null;
   try {
     cardEncrypted = cardNumber ? await encryptCard(cardNumber, env.CARD_ENC_KEY) : null;
@@ -279,11 +298,11 @@ async function handleCreateStore(request: Request, env: Env): Promise<Response> 
 }
 
 // ==========================================
-// ایستگاه اول: پیام‌های کاربر (منوی خوش‌آمدگویی)
+// ایستگاه اول: پیام‌های کاربر و موتور جستجو
 // ==========================================
 async function handleUserMessage(message: any, env: Env) {
   const chatId = message.chat.id;
-  const text = message.text;
+  const text = String(message.text || "").trim();
 
   if (text === "/start") {
     const welcomeText =
@@ -307,6 +326,47 @@ async function handleUserMessage(message: any, env: Env) {
     };
 
     await tg(env, "sendMessage", { chat_id: chatId, text: welcomeText, reply_markup: keyboard });
+    return; // خروج از تابع تا پیام /start به عنوان جستجو پردازش نشود
+  }
+
+  // بررسی وضعیت (State) جستجو از Redis
+  const userState = await redis(env, ["GET", `state:${chatId}`]);
+
+  if (userState === "awaiting_search") {
+    // بلافاصله وضعیت را پاک می‌کنیم تا پیام‌های بعدی جستجو نشوند
+    await redis(env, ["DEL", `state:${chatId}`]);
+
+    const waitMsg = await tg(env, "sendMessage", { chat_id: chatId, text: "در حال جستجو... ⏳" });
+
+    // جستجو در D1
+    const results: any = await env.DB.prepare(
+      `SELECT name, price_irr, is_on_sale, category 
+       FROM products 
+       WHERE name LIKE ? LIMIT 5`
+    )
+      .bind(`%${text}%`)
+      .all();
+
+    let reply = "";
+    if (!results || !results.results || results.results.length === 0) {
+      reply = `متأسفانه محصولی با نام "${text}" پیدا نشد. 😔`;
+    } else {
+      reply = `نتایج جستجو برای "${text}":\n\n`;
+      results.results.forEach((p: any, i: number) => {
+        const price = p.price_irr ? `${p.price_irr.toLocaleString("en-US")} تومان` : "قیمت توافقی/استارز";
+        reply += `${i + 1}. 📦 ${p.name}\n💰 ${price}\n${p.is_on_sale ? "🔥 تخفیف ویژه\n" : ""}\n`;
+      });
+    }
+
+    if (waitMsg.ok && waitMsg.result) {
+      await tg(env, "editMessageText", {
+        chat_id: chatId,
+        message_id: waitMsg.result.message_id,
+        text: reply,
+      });
+    } else {
+      await tg(env, "sendMessage", { chat_id: chatId, text: reply });
+    }
   }
 }
 
@@ -318,7 +378,6 @@ async function handleCallbackQuery(query: any, env: Env) {
   const chatId = query.message?.chat?.id;
   if (!chatId) return;
 
-  // خاموش کردن حالت لودینگ دکمه
   await tg(env, "answerCallbackQuery", { callback_query_id: query.id });
 
   let responseText = "";
@@ -327,6 +386,8 @@ async function handleCallbackQuery(query: any, env: Env) {
   } else if (data === "cart") {
     responseText = "سبد خرید شما در حال حاضر خالی است. 🛒";
   } else if (data === "search") {
+    // ذخیره وضعیت در Redis با انقضای ۳۰۰ ثانیه (۵ دقیقه)
+    await redis(env, ["SET", `state:${chatId}`, "awaiting_search", "EX", 300]);
     responseText = "نام محصول مورد نظر را تایپ کنید: 🔍";
   } else {
     responseText = "این بخش به زودی فعال می‌شود! 🚧";
@@ -345,7 +406,6 @@ async function handleChannelPost(post: any, env: Env) {
   const chatId = String(post.chat.id);
   const username = post.chat.username ? "@" + String(post.chat.username).toLowerCase() : "";
 
-  // اولویت با آیدی عددی ثبت‌شده؛ برای فروشگاه‌های قدیمی (بدون channel_chat_id) با channel_id هم پیدا می‌شود
   const store: any = await env.DB.prepare(
     `SELECT id, channel_chat_id FROM stores
      WHERE channel_chat_id = ? OR channel_id = ? OR channel_id = ?
@@ -356,7 +416,6 @@ async function handleChannelPost(post: any, env: Env) {
     .first();
   if (!store) return;
 
-  // پر کردن آیدی عددی برای فروشگاه‌های قدیمی
   if (!store.channel_chat_id) {
     await env.DB.prepare("UPDATE stores SET channel_chat_id = ? WHERE id = ? AND channel_chat_id IS NULL")
       .bind(chatId, store.id)
