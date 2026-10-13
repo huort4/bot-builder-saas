@@ -84,7 +84,6 @@ export default {
 // اتصال به Upstash Redis
 // ==========================================
 async function redis(env: Env, command: any[]): Promise<any> {
-  // اگر متغیرهای آپستش تنظیم نشده باشند، تابع بدون خطا متوقف می‌شود
   if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) return null;
   
   try {
@@ -298,30 +297,32 @@ async function handleCreateStore(request: Request, env: Env): Promise<Response> 
 }
 
 // ==========================================
-// ایستگاه اول: پیام‌های کاربر و موتور جستجو
+// ایستگاه اول: داشبورد اصلی بات‌ساز (برای ادمین‌ها) + جستجو
 // ==========================================
 async function handleUserMessage(message: any, env: Env) {
   const chatId = message.chat.id;
   const text = String(message.text || "").trim();
 
   if (text === "/start") {
-    const welcomeText =
-      "سلام رفیق! 👋\nبه فروشگاه هوشمند ما خوش اومدی. از منوی زیر می‌تونی محصولات رو ببینی یا سفارشت رو پیگیری کنی:";
+    const welcomeText = 
+      "به پلتفرم بات‌ساز فروشگاهی (Nexus) خوش آمدید! 🚀\n\n" +
+      "با استفاده از این سیستم می‌توانید در کمتر از یک دقیقه، کانال خود را به یک فروشگاه هوشمند تبدیل کنید. بدون نیاز به یک خط کدنویسی!";
 
     const keyboard = {
       inline_keyboard: [
         [
-          { text: "🛍 دسته‌بندی محصولات", callback_data: "categories" },
-          { text: "🔍 جستجوی هوشمند", callback_data: "search" },
+          { 
+            text: "🏪 ساخت فروشگاه جدید", 
+            web_app: { url: "https://bot-builder-saas.maryoa0001.workers.dev/" } 
+          }
         ],
         [
-          { text: "🛒 سبد خرید من", callback_data: "cart" },
-          { text: "📦 پیگیری سفارشات", callback_data: "track" },
+          { text: "📊 مدیریت فروشگاه‌های من", callback_data: "manage_stores" }
         ],
         [
-          { text: "🎧 پشتیبانی آنلاین", callback_data: "support" },
-          { text: "ℹ️ درباره فروشگاه", callback_data: "about" },
-        ],
+          { text: "💳 تسویه حساب و کیف پول", callback_data: "wallet" },
+          { text: "📚 راهنمای اتصال", callback_data: "help" }
+        ]
       ],
     };
 
@@ -330,48 +331,50 @@ async function handleUserMessage(message: any, env: Env) {
   }
 
   // بررسی وضعیت (State) جستجو از Redis
-  const userState = await redis(env, ["GET", `state:${chatId}`]);
+  if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) {
+    const userState = await redis(env, ["GET", `state:${chatId}`]);
 
-  if (userState === "awaiting_search") {
-    // بلافاصله وضعیت را پاک می‌کنیم تا پیام‌های بعدی جستجو نشوند
-    await redis(env, ["DEL", `state:${chatId}`]);
+    if (userState === "awaiting_search") {
+      // بلافاصله وضعیت را پاک می‌کنیم تا پیام‌های بعدی جستجو نشوند
+      await redis(env, ["DEL", `state:${chatId}`]);
 
-    const waitMsg = await tg(env, "sendMessage", { chat_id: chatId, text: "در حال جستجو... ⏳" });
+      const waitMsg = await tg(env, "sendMessage", { chat_id: chatId, text: "در حال جستجو... ⏳" });
 
-    // جستجو در D1
-    const results: any = await env.DB.prepare(
-      `SELECT name, price_irr, is_on_sale, category 
-       FROM products 
-       WHERE name LIKE ? LIMIT 5`
-    )
-      .bind(`%${text}%`)
-      .all();
+      // جستجو در D1
+      const results: any = await env.DB.prepare(
+        `SELECT name, price_irr, is_on_sale, category 
+         FROM products 
+         WHERE name LIKE ? LIMIT 5`
+      )
+        .bind(`%${text}%`)
+        .all();
 
-    let reply = "";
-    if (!results || !results.results || results.results.length === 0) {
-      reply = `متأسفانه محصولی با نام "${text}" پیدا نشد. 😔`;
-    } else {
-      reply = `نتایج جستجو برای "${text}":\n\n`;
-      results.results.forEach((p: any, i: number) => {
-        const price = p.price_irr ? `${p.price_irr.toLocaleString("en-US")} تومان` : "قیمت توافقی/استارز";
-        reply += `${i + 1}. 📦 ${p.name}\n💰 ${price}\n${p.is_on_sale ? "🔥 تخفیف ویژه\n" : ""}\n`;
-      });
-    }
+      let reply = "";
+      if (!results || !results.results || results.results.length === 0) {
+        reply = `متأسفانه محصولی با نام "${text}" پیدا نشد. 😔`;
+      } else {
+        reply = `نتایج جستجو برای "${text}":\n\n`;
+        results.results.forEach((p: any, i: number) => {
+          const price = p.price_irr ? `${p.price_irr.toLocaleString("en-US")} تومان` : "قیمت توافقی/استارز";
+          reply += `${i + 1}. 📦 ${p.name}\n💰 ${price}\n${p.is_on_sale ? "🔥 تخفیف ویژه\n" : ""}\n`;
+        });
+      }
 
-    if (waitMsg.ok && waitMsg.result) {
-      await tg(env, "editMessageText", {
-        chat_id: chatId,
-        message_id: waitMsg.result.message_id,
-        text: reply,
-      });
-    } else {
-      await tg(env, "sendMessage", { chat_id: chatId, text: reply });
+      if (waitMsg.ok && waitMsg.result) {
+        await tg(env, "editMessageText", {
+          chat_id: chatId,
+          message_id: waitMsg.result.message_id,
+          text: reply,
+        });
+      } else {
+        await tg(env, "sendMessage", { chat_id: chatId, text: reply });
+      }
     }
   }
 }
 
 // ==========================================
-// ایستگاه دوم: پردازش کلیک روی دکمه‌های شیشه‌ای
+// ایستگاه دوم: پردازش کلیک روی دکمه‌های داشبورد
 // ==========================================
 async function handleCallbackQuery(query: any, env: Env) {
   const data = query.data;
@@ -381,16 +384,36 @@ async function handleCallbackQuery(query: any, env: Env) {
   await tg(env, "answerCallbackQuery", { callback_query_id: query.id });
 
   let responseText = "";
-  if (data === "categories") {
-    responseText = "بخش دسته‌بندی‌ها در حال اتصال به پایگاه داده است... 🛍";
-  } else if (data === "cart") {
-    responseText = "سبد خرید شما در حال حاضر خالی است. 🛒";
+
+  if (data === "manage_stores") {
+    // گرفتن لیست فروشگاه‌های این ادمین از D1
+    const stores: any = await env.DB.prepare(
+      "SELECT store_name, channel_id, accept_stars FROM stores WHERE admin_id = ?"
+    )
+      .bind(chatId)
+      .all();
+
+    if (!stores || !stores.results || stores.results.length === 0) {
+      responseText = "شما هنوز هیچ فروشگاهی نساخته‌اید! از دکمه «ساخت فروشگاه جدید» استفاده کنید. 🏪";
+    } else {
+      responseText = "لیست فروشگاه‌های فعال شما:\n\n";
+      stores.results.forEach((s: any, i: number) => {
+        responseText += `${i + 1}. 🛍 ${s.store_name}\n   کانال: ${s.channel_id}\n   وضعیت استارز: ${s.accept_stars ? "✅" : "❌"}\n\n`;
+      });
+      responseText += "برای افزودن محصول، کافیست ربات را در کانال خود ادمین کرده و پست بگذارید.";
+    }
+  } else if (data === "wallet") {
+    responseText = "بخش مالی و تسویه حساب به زودی فعال می‌شود. 💳";
+  } else if (data === "help") {
+    responseText = "ابتدا از طریق مینی‌اپ فروشگاه خود را بسازید.\nسپس این ربات را در کانال خود ادمین کنید.\nهر پستی که در کانال بگذارید، به صورت خودکار به عنوان محصول در دیتابیس ثبت می‌شود!";
   } else if (data === "search") {
-    // ذخیره وضعیت در Redis با انقضای ۳۰۰ ثانیه (۵ دقیقه)
-    await redis(env, ["SET", `state:${chatId}`, "awaiting_search", "EX", 300]);
+    // دکمه جستجو برای تست و تطابق کدهای قبلی (در داشبورد ادمین فعلاً قرار داده نشده ولی هندل می‌شود)
+    if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) {
+      await redis(env, ["SET", `state:${chatId}`, "awaiting_search", "EX", 300]);
+    }
     responseText = "نام محصول مورد نظر را تایپ کنید: 🔍";
   } else {
-    responseText = "این بخش به زودی فعال می‌شود! 🚧";
+    responseText = "این بخش در حال توسعه است! 🚧";
   }
 
   await tg(env, "sendMessage", { chat_id: chatId, text: responseText });
